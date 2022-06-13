@@ -76,15 +76,15 @@ int main(int argc, char **argv)
     /* Define them with the following Language */
     mpca_lang(MPCA_LANG_DEFAULT,
               "                                                     \
-                number   : /-?[0-9]+/ ;                             \
-                operator : '+' | '-' | '*' | '/' ;                  \
-                expr     : <number> | '(' <operator> <expr>+ ')' ;  \
-                lispy    : /^/ <operator> <expr>+ /$/ ;             \
-              ",
+      number   : /-?[0-9]+/ ;                             \
+      operator : '+' | '-' | '*' | '/' ;                  \
+      expr     : <number> | '(' <operator> <expr>+ ')' ;  \
+      lispy    : /^/ <operator> <expr>+ /$/ ;             \
+    ",
               Number, Operator, Expr, Lispy);
 
     /* Print Version and Exit Information */
-    puts("Lispy Version 0.0.4-0");
+    puts("Lispy Version 0.0.4-1");
     puts("Prsee Ctrl+c to Exit\n");
 
     /* In a never ending loop */
@@ -93,7 +93,7 @@ int main(int argc, char **argv)
         /* Output our prompt */
         /*输出我们的提示*/
         // fputs("lispy> ", stdout);
-        char *input = readline("lispy>>> ");
+        char *input = readline("lispy> ");
         add_history(input);
         /* Attempt to Parse the user Input */
         /* 尝试解析用户输入 */
@@ -117,7 +117,7 @@ int main(int argc, char **argv)
     }
 
     /* Undefine and delete our parsers */
-    mpc_cleanup(4, Number, Operator, Expr, Lispy);
+    mpc_cleanup(5, Number, Operator, Expr, Lispy);
 
     return 0;
 }
@@ -135,7 +135,7 @@ void add_history(char *unused) {}
 
 lval eval_op(lval x, char *op, lval y)
 {
-    /* 如果x,y为错误的 */
+    /* If either value is an error return it */
     if (x.type == LVAL_ERR)
     {
         return x;
@@ -144,7 +144,8 @@ lval eval_op(lval x, char *op, lval y)
     {
         return y;
     }
-    /* 否则就计算数值 */
+
+    /* Otherwise do maths on the number values */
     if (strcmp(op, "+") == 0)
     {
         return lval_num(x.num + y.num);
@@ -159,8 +160,12 @@ lval eval_op(lval x, char *op, lval y)
     }
     if (strcmp(op, "/") == 0)
     {
-        return y.num == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(x.num / y.num);
+        /* If second operand is zero return error */
+        return y.num == 0
+                   ? lval_err(LERR_DIV_ZERO)
+                   : lval_num(x.num / y.num);
     }
+
     return lval_err(LERR_BAD_OP);
 }
 
@@ -169,21 +174,24 @@ lval eval(mpc_ast_t *t)
     /* If tagged as number return it directly. */
     if (strstr(t->tag, "number"))
     {
+        /* Check if there is some error in conversion */
         errno = 0;
         long x = strtol(t->contents, NULL, 10);
         return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
     }
+
     /* The operator is always second child. */
     char *op = t->children[1]->contents;
     lval x = eval(t->children[2]);
 
-    /* Iterate the remaining children and combining. */
+    /* The operator is always second child. */
     int i = 3;
     while (strstr(t->children[i]->tag, "expr"))
     {
         x = eval_op(x, op, eval(t->children[i]));
         i++;
     }
+
     return x;
 }
 
@@ -233,5 +241,5 @@ void lval_print(lval v)
 void lval_println(lval v)
 {
     lval_print(v);
-    putchar("\n");
+    putchar('\n');
 }
