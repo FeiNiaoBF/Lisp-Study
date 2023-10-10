@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
 mpc_parser_t* Number   = mpc_new("number");
 //mpc_parser_t* Letter   = mpc_new("letter");
 mpc_parser_t* Operator = mpc_new("operator");
-mpc_parser_t* Function = mpc_new("function");
+//mpc_parser_t* Function = mpc_new("function");
 mpc_parser_t* Expr     = mpc_new("expr");
 mpc_parser_t* Lispy    = mpc_new("lispy");
 //mpc_parser_t* String   = mpc_new("string");
@@ -51,22 +51,21 @@ mpc_parser_t* Lispy    = mpc_new("lispy");
 
 /* Define them with the following Language */
 mpca_lang(MPCA_LANG_DEFAULT,
-  "                                                      \
-    number   : /-?[0-9]+(\\.[0-9]+)?/ ;                  \
-    operator : '+' | '-' | '*' | '/' | '%' | '^';        \
-    function : \"add\" | \"sub\" | \"mul\" | \"div\" ;   \
-             | \"min\" | \"max\" ;                       \
-    expr     : <number> | '(' <operator> <expr>+ ')' ;   \
-             | '(' <function> <expr>+ ')' ;              \
-    lispy    : /^/ <operator> <expr>+ /$/ ;              \
-  ",
-  Number, Operator, Function, Expr, Lispy);
+    "                                                     \
+      number   : /-?[0-9]+\\.[0-9]+/ ;                             \
+      operator : '+' | '-' | '*' | '/' | '%' | '^'        \
+               | \"min\" | \"max\" | \"add\" | \"sub\" | \"nul\" | \"div\" ;                      \
+      expr     : <number> | '(' <operator> <expr>+ ')'    \
+               | '(' <operator> <expr> ')' ;              \
+      lispy    : /^/ <operator> <expr>+ /$/ ;             \
+    ",
+    Number, Operator, Expr, Lispy);
 
-puts("MiLisp Version 0.0.1.3\n");
+puts("MiLisp Version 0.0.1.4\n");
 puts("Press <Ctrl+c> to Exit\n");
 
 while(1) {
-  char* input = readline("Lisp>>> ");
+  char* input = readline("Lisp >>> ");
   add_history(input);
   mpc_result_t r;
   if(mpc_parse("<stdin>", input, Lispy, &r)) {
@@ -79,33 +78,46 @@ while(1) {
     }
   free(input);
   }
-mpc_cleanup(5, Number, Operator, Function, Expr, Lispy);
+mpc_cleanup(4, Number, Operator, Expr, Lispy);
 return 0;
 }
 
 long eval(mpc_ast_t* t) {
-  // number 
+  /* If tagged as number return it directly. */ 
   if (strstr(t->tag, "number")) {
     return atoi(t->contents);
   }
-  // The op is always second child. 
+
+  /* The operator is always second child. */
   char* op = t->children[1]->contents;
-  if (strstr(t->children[2]->tag, "function")) {
-    char* func = t->children[2]->contents;
-    return eval_fun(func, eval(t->children[3]), eval(t->children[4]));
-  } else {
-    long x = eval(t->children[2]);
-    int i = 3; 
-    while (strstr(t->children[i]->tag, "expr")) {
-      if (strcmp(t->children[i]->contents, "-") == 0 && t->children[i+1]->children_num == 0) {
-        return -x; // 返回负数
+  if (strcmp(op, "-") == 0 && t->children_num == 4) {
+    return -eval(t->children[2]);
+  }
+  long x = eval(t->children[2]);
+
+  /* Handle min and max functions */
+  if (strcmp(op, "min") == 0 || strcmp(op, "max") == 0) {
+    for (int i = 3; i < t->children_num - 1; i++) {
+      long y = eval(t->children[i]);
+      if (strcmp(op, "min") == 0) {
+        x = (x < y) ? x : y;
+      } else {
+        x = (x > y) ? x : y;
       }
-      x = eval_op(x, op, eval(t->children[i]));
-      i++;
     }
     return x;
   }
+
+  /* Handle other operators */
+  int i = 3;
+  while (strstr(t->children[i]->tag, "expr")) {
+    x = eval_op(x, op, eval(t->children[i]));
+    i++;
+  }
+
+  return x;  
 }
+
   
 long eval_op(long x, char* op, long y) {
   if (strcmp(op, "+") == 0) {return x + y;}
