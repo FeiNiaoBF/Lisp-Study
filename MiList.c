@@ -32,17 +32,23 @@ void add_history(char* unused) {}
 
 // =============================
 // 创建可能的错误类型枚举
-enum {LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUMS};
+enum {LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUMS, LERR_BAD_FUNC};
 // 创建可能的lval类型的枚举
 enum {LVAL_NUM, LVAL_ERR};
 
 // =============================
+// Number type
+
+
 // Declare New lval Struct
 typedef struct lval
 {
- int lisptype;
- long num;
- int err;
+  int lisptype;
+  union{
+  long lnum;
+  double dnum;
+  int err;
+  };
 }lval;
 
 
@@ -56,7 +62,7 @@ lval eval_op(lval x, char* op, lval y);
 // 语法函数
 // long eval_fun(char* fun, long x, long y);
 // create a new number type lval
-lval lval_num(long x);
+lval lval_num(double x);
 // create a new error type lval
 lval lval_err(int e);
 
@@ -82,7 +88,7 @@ mpc_parser_t* Lispy    = mpc_new("lispy");
 /* Define them with the following Language */
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                                     \
-      number   : /-?[0-9]+/ ;                             \
+      number   : /-?[0-9]+\\.?[0-9]*/ ;                             \
       operator : '+' | '-' | '*' | '/' | '%' | '^'        \
                | \"min\" | \"max\" ;                      \
       expr     : <number> | '(' <operator> <expr>+ ')' | '-' <expr>;  \
@@ -91,7 +97,7 @@ mpc_parser_t* Lispy    = mpc_new("lispy");
     Number, Operator, Expr, Lispy);
 
 
-puts("MiLisp Version 0.0.1.5");
+puts("MiLisp Version 0.0.1.6");
 puts("Press <Ctrl+c> to Exit\n");
 
 while(1) {
@@ -116,7 +122,7 @@ lval eval(mpc_ast_t* t) {
   /* If tagged as number return it directly. */ 
   if (strstr(t->tag, "number")) {
     errno = 0;
-    long x = strtol(t->contents, NULL, 10);
+    double x = strtod(t->contents, NULL);
     return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUMS);
   }
 
@@ -153,20 +159,27 @@ lval eval(mpc_ast_t* t) {
 
   
 lval eval_op(lval x, char* op, lval y) {
-  if (x.lisptype == LVAL_ERR) return x;
-  if (y.lisptype == LVAL_ERR) return y;
-
-  if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
-  if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
-  if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
-  if (strcmp(op, "%") == 0) {return lval_num(x.num % y.num);}
-  if (strcmp(op, "^") == 0) {return lval_num(pow(x.num, y.num));}
+if (strcmp(op, "+") == 0) { return lval_num(x.dnum + y.dnum); }
+  if (strcmp(op, "-") == 0) { return lval_num(x.dnum - y.dnum); }
+  if (strcmp(op, "*") == 0) { return lval_num(x.dnum * y.dnum); }
   if (strcmp(op, "/") == 0) {
-    return y.num == 0 
-    ? lval_err(LERR_DIV_ZERO)
-    : lval_num(x.num / y.num);}
-  return lval_err(LERR_BAD_OP);
+    return y.dnum == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(x.dnum / y.dnum);
   }
+  if (strcmp(op, "%") == 0) {
+    return y.dnum == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(fmod(x.dnum, y.dnum));
+  }
+  if (strcmp(op, "^") == 0) {
+    return lval_num(pow(x.dnum, y.dnum));
+  }
+  if (strcmp(op, "min") == 0) {
+    return lval_num(x.dnum < y.dnum ? x.dnum : y.dnum);
+  }
+  if (strcmp(op, "max") == 0) {
+    return lval_num(x.dnum > y.dnum ? x.dnum : y.dnum);
+  }
+
+  return lval_err(LERR_BAD_OP);
+}
 
 // long eval_fun(char* fun, long x, long y) {
 //   if (strcmp(fun, "min") == 0) {return x < y ? x : y;}
@@ -183,12 +196,13 @@ lval eval_op(lval x, char* op, lval y) {
 //   return v;
 // }
 
-lval lval_num(long x) {
+lval lval_num(double x) {
   lval v;
   v.lisptype = LVAL_NUM;
-  v.num = x;
+  v.dnum = x;
   return v;
 }
+
 
 lval lval_err(int e) {
   lval v;
@@ -200,7 +214,7 @@ lval lval_err(int e) {
 void lval_print(lval lv) {
   switch (lv.lisptype) {
     case LVAL_NUM: 
-    printf("%li", lv.num);
+        printf("%.2lf", lv.dnum);
       break;
     case LVAL_ERR:
       if(lv.err == LERR_DIV_ZERO) 
