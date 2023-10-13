@@ -30,12 +30,42 @@ void add_history(char* unused) {}
 #endif
 #endif
 
+// =============================
+// 创建可能的错误类型枚举
+enum {LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUMS};
+// 创建可能的lval类型的枚举
+enum {LVAL_NUM, LVAL_ERR};
+
+// =============================
+// Declare New lval Struct
+typedef struct lval
+{
+ int lisptype;
+ long num;
+ int err;
+}lval;
+
+
+
 // 语法树递归
-long eval(mpc_ast_t* t);
+lval eval(mpc_ast_t* t);
+// 负数语法
+// lval eval_neg(lval v);
 // 语法数求值
-long eval_op(long x, char* op, long y);
+lval eval_op(lval x, char* op, lval y);
 // 语法函数
-long eval_fun(char* fun, long x, long y);
+// long eval_fun(char* fun, long x, long y);
+// create a new number type lval
+lval lval_num(long x);
+// create a new error type lval
+lval lval_err(int e);
+
+// print lavl
+void lval_print(lval lv);
+void lval_println(lval lv);
+
+
+
 
 int main(int argc, char** argv) {
 
@@ -50,18 +80,18 @@ mpc_parser_t* Lispy    = mpc_new("lispy");
 
 
 /* Define them with the following Language */
-mpca_lang(MPCA_LANG_DEFAULT,
+  mpca_lang(MPCA_LANG_DEFAULT,
     "                                                     \
-      number   : /-?[0-9]+\\.[0-9]+/ ;                             \
+      number   : /-?[0-9]+/ ;                             \
       operator : '+' | '-' | '*' | '/' | '%' | '^'        \
-               | \"min\" | \"max\" | \"add\" | \"sub\" | \"nul\" | \"div\" ;                      \
-      expr     : <number> | '(' <operator> <expr>+ ')'    \
-               | '(' <operator> <expr> ')' ;              \
+               | \"min\" | \"max\" ;                      \
+      expr     : <number> | '(' <operator> <expr>+ ')' | '-' <expr>;  \
       lispy    : /^/ <operator> <expr>+ /$/ ;             \
     ",
     Number, Operator, Expr, Lispy);
 
-puts("MiLisp Version 0.0.1.4\n");
+
+puts("MiLisp Version 0.0.1.5");
 puts("Press <Ctrl+c> to Exit\n");
 
 while(1) {
@@ -69,8 +99,8 @@ while(1) {
   add_history(input);
   mpc_result_t r;
   if(mpc_parse("<stdin>", input, Lispy, &r)) {
-      long result = eval(r.output);
-      printf("%li\n", result);
+      lval result = eval(r.output);
+      lval_println(result);
       mpc_ast_delete(r.output);
     } else {
       mpc_err_print(r.error);
@@ -82,31 +112,34 @@ mpc_cleanup(4, Number, Operator, Expr, Lispy);
 return 0;
 }
 
-long eval(mpc_ast_t* t) {
+lval eval(mpc_ast_t* t) {
   /* If tagged as number return it directly. */ 
   if (strstr(t->tag, "number")) {
-    return atoi(t->contents);
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUMS);
   }
 
   /* The operator is always second child. */
   char* op = t->children[1]->contents;
-  if (strcmp(op, "-") == 0 && t->children_num == 4) {
-    return -eval(t->children[2]);
-  }
-  long x = eval(t->children[2]);
+  // The op is '-'
+  // if (strcmp(op, "-") == 0 ) { //&& t->children_num == 4
+  //   return eval_neg(eval(t->children[2]));
+  // }
+  lval x = eval(t->children[2]);
 
   /* Handle min and max functions */
-  if (strcmp(op, "min") == 0 || strcmp(op, "max") == 0) {
-    for (int i = 3; i < t->children_num - 1; i++) {
-      long y = eval(t->children[i]);
-      if (strcmp(op, "min") == 0) {
-        x = (x < y) ? x : y;
-      } else {
-        x = (x > y) ? x : y;
-      }
-    }
-    return x;
-  }
+  // if (strcmp(op, "min") == 0 || strcmp(op, "max") == 0) {
+  //   for (int i = 3; i < t->children_num - 1; i++) {
+  //     lval y = eval(t->children[i]);
+  //     if (strcmp(op, "min") == 0) {
+  //       x = (x < y) ? x : y;
+  //     } else {
+  //       x = (x > y) ? x : y;
+  //     }
+  //   }
+  //   return x;
+  // }
 
   /* Handle other operators */
   int i = 3;
@@ -119,24 +152,70 @@ long eval(mpc_ast_t* t) {
 }
 
   
-long eval_op(long x, char* op, long y) {
-  if (strcmp(op, "+") == 0) {return x + y;}
-  if (strcmp(op, "-") == 0) {return x - y;}
-  if (strcmp(op, "*") == 0) {return x * y;}
-  if (strcmp(op, "/") == 0) {return x / y;}
-  if (strcmp(op, "%") == 0) {return x % y;}
-  if (strcmp(op, "^") == 0) {return pow(x, y);}
-  return 0;
+lval eval_op(lval x, char* op, lval y) {
+  if (x.lisptype == LVAL_ERR) return x;
+  if (y.lisptype == LVAL_ERR) return y;
+
+  if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
+  if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
+  if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
+  if (strcmp(op, "%") == 0) {return lval_num(x.num % y.num);}
+  if (strcmp(op, "^") == 0) {return lval_num(pow(x.num, y.num));}
+  if (strcmp(op, "/") == 0) {
+    return y.num == 0 
+    ? lval_err(LERR_DIV_ZERO)
+    : lval_num(x.num / y.num);}
+  return lval_err(LERR_BAD_OP);
   }
 
-long eval_fun(char* fun, long x, long y) {
-  if (strcmp(fun, "min") == 0) {return x < y ? x : y;}
-  if (strcmp(fun, "max") == 0) {return x > y ? x : y;}
-  if (strcmp(fun, "add") == 0) {return eval_op(x, "+", y);}
-  if (strcmp(fun, "sub") == 0) {return eval_op(x, "-", y);}
-  if (strcmp(fun, "mul") == 0) {return eval_op(x, "*", y);}
-  if (strcmp(fun, "div") == 0) {return eval_op(x, "/", y);}
-  return 0;
+// long eval_fun(char* fun, long x, long y) {
+//   if (strcmp(fun, "min") == 0) {return x < y ? x : y;}
+//   if (strcmp(fun, "max") == 0) {return x > y ? x : y;}
+//   if (strcmp(fun, "add") == 0) {return eval_op(x, "+", y);}
+//   if (strcmp(fun, "sub") == 0) {return eval_op(x, "-", y);}
+//   if (strcmp(fun, "mul") == 0) {return eval_op(x, "*", y);}
+//   if (strcmp(fun, "div") == 0) {return eval_op(x, "/", y);}
+//   return 0;
+// }
+
+// lval eval_neg(lval v){
+//   v.num = ~(v.num) + 1;
+//   return v;
+// }
+
+lval lval_num(long x) {
+  lval v;
+  v.lisptype = LVAL_NUM;
+  v.num = x;
+  return v;
+}
+
+lval lval_err(int e) {
+  lval v;
+  v.lisptype = LVAL_ERR;
+  v.err = e;
+  return v;
+}
+
+void lval_print(lval lv) {
+  switch (lv.lisptype) {
+    case LVAL_NUM: 
+    printf("%li", lv.num);
+      break;
+    case LVAL_ERR:
+      if(lv.err == LERR_DIV_ZERO) 
+        printf("Error: Division By Zero!");
+      if(lv.err == LERR_BAD_OP)
+        printf("Error: Invalid Operator!");
+      if(lv.err == LERR_BAD_NUMS)
+        printf("Error: Invalid Number!");
+      break;
+  }
+}
+
+void lval_println(lval lv) {
+  lval_print(lv);
+  putchar('\n');
 }
 
 
